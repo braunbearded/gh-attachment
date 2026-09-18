@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+
+if ! command -v go >/dev/null 2>&1; then
+  echo "gh-attachment: Go is required when installing from source. Install Go or use a release build." >&2
+  exit 1
+fi
+
+dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cache_base="${XDG_CACHE_HOME:-$HOME/.cache}/gh-attachment"
+if ! mkdir -p "$cache_base" 2>/dev/null; then
+  cache_base="$dir/.cache"
+  mkdir -p "$cache_base"
+fi
+
+bin="$cache_base/gh-attachment-bin"
+if [ ! -x "$bin" ] || [ "$dir/main.go" -nt "$bin" ] || [ "$dir/go.mod" -nt "$bin" ]; then
+  (cd "$dir" && GOCACHE="$cache_base/go-build" GOMODCACHE="$cache_base/go-mod" go build -o "$bin" .)
+fi
+
+exec "$bin" "$@"

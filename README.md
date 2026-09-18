@@ -14,17 +14,24 @@ gh attachment download https://github.com/owner/repo/pull/456
 
 ## Install
 
-From a published repository:
-
 ```bash
-gh extension install OWNER/gh-attachment
+gh extension install braunbearded/gh-attachment
 ```
+
+This repo includes a tiny `gh-attachment` launcher, so source installs work too. Source installs need Go installed; tagged releases use prebuilt binaries.
 
 Local development:
 
 ```bash
-go build -o gh-attachment .
-gh extension install .
+go build -o dist/gh-attachment .
+./dist/gh-attachment --help
+```
+
+To publish prebuilt artifacts, push a tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
 ```
 
 ## Usage
