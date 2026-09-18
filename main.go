@@ -54,6 +54,21 @@ type commentResponse struct {
 	} `json:"user"`
 }
 
+type issueListResponse struct {
+	Number      int       `json:"number"`
+	Title       string    `json:"title"`
+	State       string    `json:"state"`
+	UpdatedAt   string    `json:"updated_at"`
+	PullRequest *struct{} `json:"pull_request"`
+}
+
+type targetChoice struct {
+	Target    target
+	Title     string
+	State     string
+	UpdatedAt string
+}
+
 var attachmentRE = regexp.MustCompile(`https://github\.com/user-attachments/files/[0-9]+/[^\s)>'\"]+`)
 
 func main() {
@@ -89,7 +104,17 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		t, err := resolveTarget(opts)
+		var t target
+		if hasTarget(opts) {
+			t, err = resolveTarget(opts)
+		} else {
+			t, err = chooseDownloadTarget(opts.Repo, opts.All)
+			opts.All = false
+			if errors.Is(err, errCanceled) {
+				fmt.Println("Canceled")
+				return nil
+			}
+		}
 		if err != nil {
 			return err
 		}
@@ -134,7 +159,8 @@ Usage:
   gh attachment list https://github.com/owner/repo/issues/123
   gh attachment download --issue 123 [--all] [--output DIR]
   gh attachment download --pr 456 [--all] [--output DIR]
-  gh attachment download https://github.com/owner/repo/pull/456 [--all]`)
+  gh attachment download https://github.com/owner/repo/pull/456 [--all]
+  gh attachment download [--all] [--repo owner/repo]`)
 }
 
 func parseOptions(args []string, withDownloadFlags bool) (options, error) {
@@ -182,6 +208,10 @@ func moveURLArgLast(args []string) []string {
 		out = append(out, urlArg)
 	}
 	return out
+}
+
+func hasTarget(opts options) bool {
+	return opts.URL != "" || opts.Issue != 0 || opts.PR != 0
 }
 
 func resolveTarget(opts options) (target, error) {
@@ -252,6 +282,125 @@ func currentRepo() (string, error) {
 		return "", errors.New("could not detect repository; pass --repo owner/repo")
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func chooseDownloadTarget(repo string, includeClosed bool) (target, error) {
+	if repo == "" {
+		var err error
+		repo, err = currentRepo()
+		if err != nil {
+			return target{}, err
+		}
+	}
+	choices, err := listTargets(repo, includeClosed)
+	if err != nil {
+		return target{}, err
+	}
+	if len(choices) == 0 {
+		return target{}, errors.New("no issues or pull requests found")
+	}
+	return chooseTarget(repo, choices)
+}
+
+func listTargets(repo string, includeClosed bool) ([]targetChoice, error) {
+	state := "open"
+	if includeClosed {
+		state = "all"
+	}
+	data, err := ghAPI("--paginate", "--slurp", fmt.Sprintf("repos/%s/issues?state=%s&per_page=100", repo, state))
+	if err != nil {
+		return nil, err
+	}
+	issues, err := parseIssueList(data)
+	if err != nil {
+		return nil, err
+	}
+	choices := make([]targetChoice, 0, len(issues))
+	for _, issue := range issues {
+		kind := "issue"
+		if issue.PullRequest != nil {
+			kind = "pull request"
+		}
+		choices = append(choices, targetChoice{
+			Target:    target{Repo: repo, Kind: kind, Number: issue.Number},
+			Title:     issue.Title,
+			State:     issue.State,
+			UpdatedAt: issue.UpdatedAt,
+		})
+	}
+	return choices, nil
+}
+
+func parseIssueList(data []byte) ([]issueListResponse, error) {
+	var pages [][]issueListResponse
+	if err := json.Unmarshal(data, &pages); err == nil {
+		var issues []issueListResponse
+		for _, page := range pages {
+			issues = append(issues, page...)
+		}
+		return issues, nil
+	}
+	var issues []issueListResponse
+	if err := json.Unmarshal(data, &issues); err != nil {
+		return nil, err
+	}
+	return issues, nil
+}
+
+func chooseTarget(repo string, choices []targetChoice) (target, error) {
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return target{}, errors.New("target selection needs a terminal; pass --issue, --pr, or URL in scripts")
+	}
+	defer tty.Close()
+
+	restore, err := rawTerminal(tty.Name())
+	if err != nil {
+		return target{}, err
+	}
+	defer restore()
+
+	cursor := 0
+	for {
+		drawTargetPicker(tty, repo, choices, cursor)
+		switch readKey(tty) {
+		case "up":
+			if cursor > 0 {
+				cursor--
+			}
+		case "down":
+			if cursor < len(choices)-1 {
+				cursor++
+			}
+		case "enter":
+			fmt.Fprint(tty, "\033[H\033[2J")
+			return choices[cursor].Target, nil
+		case "esc":
+			fmt.Fprint(tty, "\033[H\033[2J")
+			return target{}, errCanceled
+		}
+	}
+}
+
+func drawTargetPicker(w io.Writer, repo string, choices []targetChoice, cursor int) {
+	fmt.Fprint(w, "\033[H\033[2J")
+	fmt.Fprintf(w, "Select issue or pull request in %s\n", repo)
+	for i, c := range choices {
+		prefix := "  "
+		if i == cursor {
+			prefix = "> "
+		}
+		kind := "issue"
+		if c.Target.Kind == "pull request" {
+			kind = "PR"
+		}
+		fmt.Fprintf(w, "%s#%d %s [%s] %s", prefix, c.Target.Number, kind, c.State, c.Title)
+		if ts := shortTime(c.UpdatedAt); ts != "" {
+			fmt.Fprintf(w, "  —  %s", ts)
+		}
+		fmt.Fprintln(w)
+	}
+	fmt.Fprintln(w, "↑/↓ move  Enter select  Esc cancel")
 }
 
 func findAttachments(t target) ([]attachment, error) {

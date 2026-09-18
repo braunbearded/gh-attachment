@@ -18,9 +18,12 @@ Interactive picker:
 ```bash
 gh attachment download --issue 123
 gh attachment download --pr 456
+gh attachment download
 ```
 
-Non-interactive download for scripts:
+Without `--issue`, `--pr`, or URL, open issues and pull requests are shown first. Pick one, then the normal attachment picker opens. Add `--all` in this mode to include closed issues and pull requests too.
+
+Non-interactive download for scripts with an explicit target:
 
 ```bash
 gh attachment download --issue 123 --all

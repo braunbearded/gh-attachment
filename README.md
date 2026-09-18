@@ -8,9 +8,10 @@ gh attachment list --pr 456
 gh attachment download --issue 123
 gh attachment download --pr 456 --all --output ./downloads
 gh attachment download https://github.com/owner/repo/pull/456
+gh attachment download
 ```
 
-`list` only prints attachments. `download` opens an interactive picker unless `--all` is set.
+`list` only prints attachments. `download` opens an interactive picker unless a target is given with `--all`. Without `--issue`, `--pr`, or URL, `download` first lets you pick an open issue/PR; add `--all` there to include closed ones.
 
 ## Install
 
@@ -38,7 +39,7 @@ git push origin v0.1.0
 
 ```bash
 gh attachment list (--issue N | --pr N | URL) [--repo owner/repo]
-gh attachment download (--issue N | --pr N | URL) [--repo owner/repo] [--all] [--output DIR]
+gh attachment download [(--issue N | --pr N | URL)] [--repo owner/repo] [--all] [--output DIR]
 ```
 
 If `--repo` is omitted, the current repository is detected with `gh repo view`.

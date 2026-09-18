@@ -39,6 +39,16 @@ func TestParseOptionsAllowsFlagsAfterURL(t *testing.T) {
 	}
 }
 
+func TestParseIssueList(t *testing.T) {
+	issues, err := parseIssueList([]byte(`[[{"number":1,"title":"bug","state":"open","updated_at":"2026-09-18T21:00:00Z"},{"number":2,"title":"change","state":"closed","pull_request":{},"updated_at":"2026-09-18T22:00:00Z"}]]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 2 || issues[1].PullRequest == nil || issues[1].Title != "change" {
+		t.Fatalf("unexpected issues: %#v", issues)
+	}
+}
+
 func TestParsePaginatedComments(t *testing.T) {
 	comments, err := parseComments([]byte(`[[{"body":"one","user":{"login":"a"}}],[{"body":"two","user":{"login":"b"}}]]`))
 	if err != nil {
@@ -46,6 +56,16 @@ func TestParsePaginatedComments(t *testing.T) {
 	}
 	if len(comments) != 2 || comments[1].Body != "two" || comments[1].User.Login != "b" {
 		t.Fatalf("unexpected comments: %#v", comments)
+	}
+}
+
+func TestDrawTargetPickerIsCompact(t *testing.T) {
+	choices := []targetChoice{{Target: target{Kind: "issue", Number: 1}, Title: "bug", State: "open", UpdatedAt: "2026-09-18T21:00:00Z"}}
+	var b strings.Builder
+	drawTargetPicker(&b, "acme/widgets", choices, 0)
+	out := b.String()
+	if strings.Contains(out, "\n\n") || !strings.Contains(out, "#1 issue [open] bug") {
+		t.Fatalf("unexpected target picker: %q", out)
 	}
 }
 
