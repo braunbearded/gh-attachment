@@ -26,9 +26,10 @@ type target struct {
 }
 
 type attachment struct {
-	URL      string
-	Filename string
-	Source   string
+	URL       string
+	Filename  string
+	Source    string
+	Timestamp string
 }
 
 type options struct {
@@ -41,12 +42,14 @@ type options struct {
 }
 
 type issueResponse struct {
-	Body string `json:"body"`
+	Body      string `json:"body"`
+	CreatedAt string `json:"created_at"`
 }
 
 type commentResponse struct {
-	Body string `json:"body"`
-	User struct {
+	Body      string `json:"body"`
+	CreatedAt string `json:"created_at"`
+	User      struct {
 		Login string `json:"login"`
 	} `json:"user"`
 }
@@ -263,19 +266,19 @@ func findAttachments(t target) ([]attachment, error) {
 
 	seen := map[string]bool{}
 	var items []attachment
-	add := func(body, source string) {
-		for _, a := range extractAttachments(body, source) {
+	add := func(body, source, timestamp string) {
+		for _, a := range extractAttachments(body, source, timestamp) {
 			if !seen[a.URL] {
 				seen[a.URL] = true
 				items = append(items, a)
 			}
 		}
 	}
-	add(issue.Body, "Issue body")
+	add(issue.Body, "Issue body", issue.CreatedAt)
 	if t.Kind == "pull request" {
 		items = nil
 		seen = map[string]bool{}
-		add(issue.Body, "Pull request body")
+		add(issue.Body, "Pull request body", issue.CreatedAt)
 	}
 
 	commentsJSON, err := ghAPI("--paginate", "--slurp", fmt.Sprintf("repos/%s/issues/%d/comments", t.Repo, t.Number))
@@ -291,7 +294,7 @@ func findAttachments(t target) ([]attachment, error) {
 		if who == "" {
 			who = "unknown"
 		}
-		add(c.Body, "Comment by "+who)
+		add(c.Body, "Comment by "+who, c.CreatedAt)
 	}
 	return items, nil
 }
@@ -322,7 +325,7 @@ func ghAPI(args ...string) ([]byte, error) {
 	return out, nil
 }
 
-func extractAttachments(markdown, source string) []attachment {
+func extractAttachments(markdown, source, timestamp string) []attachment {
 	matches := attachmentRE.FindAllString(markdown, -1)
 	items := make([]attachment, 0, len(matches))
 	for _, raw := range matches {
@@ -331,9 +334,19 @@ func extractAttachments(markdown, source string) []attachment {
 		if filename == "" {
 			continue
 		}
-		items = append(items, attachment{URL: raw, Filename: filename, Source: source})
+		items = append(items, attachment{URL: raw, Filename: filename, Source: source, Timestamp: timestamp})
 	}
 	return items
+}
+
+func shortTime(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t.UTC().Format("2006-01-02 15:04 UTC")
+	}
+	return raw
 }
 
 func filenameFromURL(raw string) string {
@@ -358,7 +371,11 @@ func printList(t target, items []attachment) {
 		return
 	}
 	for i, a := range items {
-		fmt.Printf("%3d  %-30s %s\n", i+1, a.Filename, a.Source)
+		source := a.Source
+		if ts := shortTime(a.Timestamp); ts != "" {
+			source += "  —  " + ts
+		}
+		fmt.Printf("%3d  %-30s %s\n", i+1, a.Filename, source)
 	}
 }
 
@@ -417,7 +434,7 @@ func rawTerminal(device string) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := exec.Command("stty", "-F", device, "raw", "-echo", "min", "0", "time", "1").Run(); err != nil {
+	if err := exec.Command("stty", "-F", device, "-icanon", "-echo", "min", "0", "time", "1").Run(); err != nil {
 		return nil, err
 	}
 	return func() { _ = exec.Command("stty", "-F", device, strings.TrimSpace(string(state))).Run() }, nil
@@ -425,7 +442,7 @@ func rawTerminal(device string) (func(), error) {
 
 func drawPicker(w io.Writer, t target, items []attachment, selected []bool, cursor int) {
 	fmt.Fprint(w, "\033[H\033[2J")
-	fmt.Fprintf(w, "Attachments for %s #%d\n\n", t.Kind, t.Number)
+	fmt.Fprintf(w, "Attachments for %s #%d\n", t.Kind, t.Number)
 	count := 0
 	for i, a := range items {
 		box := "[ ]"
@@ -437,9 +454,16 @@ func drawPicker(w io.Writer, t target, items []attachment, selected []bool, curs
 		if i == cursor {
 			prefix = "> "
 		}
-		fmt.Fprintf(w, "%s%s %s\n", prefix, box, a.Filename)
+		label := a.Filename
+		if a.Source != "" {
+			label += "  —  " + a.Source
+		}
+		if ts := shortTime(a.Timestamp); ts != "" {
+			label += "  —  " + ts
+		}
+		fmt.Fprintf(w, "%s%s %s\n", prefix, box, label)
 	}
-	fmt.Fprintf(w, "\nSelected: %d files\n\n↑/↓ Navigate   Space Select   A All   Enter Download   Esc Cancel\n", count)
+	fmt.Fprintf(w, "Selected: %d/%d  ↑/↓ move  Space select  A all  Enter download  Esc cancel\n", count, len(items))
 }
 
 func readKey(r io.Reader) string {

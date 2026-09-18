@@ -9,7 +9,7 @@ gh attachment list --repo owner/repo --issue 123
 gh attachment list https://github.com/owner/repo/issues/123
 ```
 
-Output includes the filename and where it was found: issue/PR body or comment author.
+Output includes the filename, where it was found, and the issue/comment timestamp.
 
 ## Download attachments
 

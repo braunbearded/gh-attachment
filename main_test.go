@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseIssueURL(t *testing.T) {
 	tg, err := parseIssueURL("https://github.com/acme/widgets/pull/42")
@@ -14,7 +17,7 @@ func TestParseIssueURL(t *testing.T) {
 
 func TestExtractAttachmentsDedupInput(t *testing.T) {
 	md := `see [log](https://github.com/user-attachments/files/123/error.log) and <https://github.com/user-attachments/files/456/report%20final.pdf>.`
-	items := extractAttachments(md, "Issue body")
+	items := extractAttachments(md, "Issue body", "2026-09-18T21:00:00Z")
 	if len(items) != 2 {
 		t.Fatalf("expected 2 attachments, got %d", len(items))
 	}
@@ -43,6 +46,22 @@ func TestParsePaginatedComments(t *testing.T) {
 	}
 	if len(comments) != 2 || comments[1].Body != "two" || comments[1].User.Login != "b" {
 		t.Fatalf("unexpected comments: %#v", comments)
+	}
+}
+
+func TestDrawPickerIsCompact(t *testing.T) {
+	items := []attachment{{Filename: "one.log", Source: "Issue body", Timestamp: "2026-09-18T21:00:00Z"}, {Filename: "two.zip", Source: "Comment by alice", Timestamp: "2026-09-18T22:00:00Z"}}
+	var b strings.Builder
+	drawPicker(&b, target{Kind: "issue", Number: 1}, items, []bool{true, false}, 0)
+	out := b.String()
+	if strings.Contains(out, "\n\n") {
+		t.Fatalf("picker contains blank lines: %q", out)
+	}
+	if !strings.Contains(out, "one.log  —  Issue body  —  2026-09-18") || !strings.Contains(out, "two.zip  —  Comment by alice  —  2026-09-18") {
+		t.Fatalf("missing attachment source: %q", out)
+	}
+	if !strings.Contains(out, "Selected: 1/2") {
+		t.Fatalf("missing compact selected count: %q", out)
 	}
 }
 
